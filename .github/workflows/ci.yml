@@ -2,7 +2,6 @@ name: Provenance smoke
 on:
   push:
     branches: [main]
-  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -21,7 +20,7 @@ jobs:
           set -eu
           echo "PROVENANCE_CHECKOUT=$(git rev-parse HEAD)"
           echo "PROVENANCE_CONTEXT source_sha=$SOURCE_SHA source_ref=$SOURCE_REF event_sha=$EVENT_SHA event=$EVENT_NAME"
-          if [ "${BUILDKITE:-}" = true ]; then
+          if [ -n "${BUILDKITE:-}" ]; then
             python3 - <<'PY'
           import os, json, hashlib
           keys = [k for k in os.environ if k.startswith('BUILDKITE_GITHUB_WORKFLOW')]
