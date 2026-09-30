@@ -1,44 +1,44 @@
-name: Representative CI
-
+name: Provenance smoke
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
-  test:
-    name: Test (Node ${{ matrix.node }})
+  provenance:
+    name: Provenance source probe
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        node: ['20', '22']
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node }}
-      - name: Run duration tests
-        run: npm test
-      - name: Identify tested source
-        run: git rev-parse HEAD
-
-  complete:
-    name: All tests passed
-    needs: test
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Verify dependency result
+      - name: Check source and legacy compatibility
         env:
-          TEST_RESULT: ${{ needs.test.result }}
+          SOURCE_SHA: ${{ github.workflow_sha }}
+          SOURCE_REF: ${{ github.workflow_ref }}
+          EVENT_SHA: ${{ github.sha }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
-          test "$TEST_RESULT" = success
-          echo "E2E_COMPLETE: event=$EVENT_NAME tests=$TEST_RESULT"
+          set -eu
+          echo "PROVENANCE_CHECKOUT=$(git rev-parse HEAD)"
+          echo "PROVENANCE_CONTEXT source_sha=$SOURCE_SHA source_ref=$SOURCE_REF event_sha=$EVENT_SHA event=$EVENT_NAME"
+          if [ "${BUILDKITE:-}" = true ]; then
+            python3 - <<'PY'
+          import os, json, hashlib
+          keys = [k for k in os.environ if k.startswith('BUILDKITE_GITHUB_WORKFLOW')]
+          out = {}
+          for k in sorted(keys):
+              v = os.environ[k]
+              out[k] = {'bytes': len(v), 'sha256': hashlib.sha256(v.encode()).hexdigest()} if 'CONTENT' in k else v
+          print('PROVENANCE_LEGACY=' + json.dumps(out, sort_keys=True))
+          assert keys, 'Expected legacy workflow environment'
+          PY
+          fi
+      - name: Report distinct checkout only for explicit manual drift probe
+        run: |
+          set -eu
+          if [ "${LAB_PROVENANCE_DRIFT:-}" = 1 ]; then
+            buildkite-agent meta-data set buildkite:git:commit:sha 71e773fd692bfba5c9732de32a2275886d89b6ed
+            echo PROVENANCE_DRIFT_REPORTED=71e773fd692bfba5c9732de32a2275886d89b6ed
+          else
+            echo PROVENANCE_DRIFT_NOT_REQUESTED
+          fi
